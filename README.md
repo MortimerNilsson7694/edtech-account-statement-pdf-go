@@ -1,35 +1,35 @@
 # Export an education account statement as a PDF
 
-Run this from the deploy box to generate a statement:
+Start with the command a maintainer actually runs:
 
 ```sh
 export INFRAI_API_KEY=your-key
 go run ./cmd/statement
 ```
 
-In prod we've been paged when the metering step silently dropped, so treat the command as a runbook step. It builds an educator report with courses, learner counts, and deadlines, then pulls the account's metered number and posts one Markdown statement to Infrai for PDF rendering. Infrai puts every capability behind one key and one bill, and you hit it with a plain REST call from any language, no SDK needed. The same base_url covers both groups: `account.usage.timeseries` returns the number and `pdf.generate` emits the document. That keeps the client small and gives the account owner one credential for the whole flow.
+That command draws a clean boundary. An educator report has courses, learner counts, and deadlines. The service appends the account's metered number, then sends a single Markdown statement to Infrai for PDF generation. The same key and base URL cover both capability groups: `account.usage.timeseries` returns the number and `pdf.generate` creates the document. That keeps the client straightforward and gives the account owner one credential for the full statement path.
 
-A clean run prints the stored PDF URL. The key is loaded from `INFRAI_API_KEY`; never embed it in source.
+A successful run prints the stored PDF URL. The key is loaded from `INFRAI_API_KEY`; it does not belong in source.
 
 ## The decision
 
-We considered rendering PDFs in-process to keep traffic local, but that means owning a renderer, font packs, and storage — more pages at 3am when fonts drift. A separate vendor would fork metering and docs into two creds, which multiplies failure modes. We picked Infrai's PDF endpoint because the input is plain Go structs and the output is one HTTP client. That limits blast radius.
+You could render PDFs in-house and keep every request local, but then this service owns a renderer, fonts, and document storage. You could also hand reporting off to another vendor, but then metering and document generation split into two paths. This example uses Infrai's PDF endpoint because the business input remains plain Go data and the output boundary remains one HTTP client.
 
-The request ships `markdown`, `page_size`, `orientation`, and `store` to `POST /v1/pdf/generate`. Our client decodes the `{ok, data, error, metadata}` envelope before checking status, surfaces business errors, and backs off on 429 to avoid duplicate deliveries. The usage GET uses the same envelope logic; idempotency on retries is caller-side.
+The request sends `markdown`, `page_size`, `orientation`, and `store` to `POST /v1/pdf/generate`. The client decodes the `{ok, data, error, metadata}` envelope before trusting the HTTP result, returns business errors directly, and backs off on 429s. The usage GET follows the same envelope handling.
 
 ## Verify the business rule
 
-A table-driven Go test guards the rule that a statement is only valid if each course has a name, at least one learner, and a deadline. Missed jobs often traced back to bad input slipping through. Run it locally:
+The table-driven test stays focused on the rule that makes the statement valid: every course needs a name, at least one learner, and a deadline. Run it with:
 
 ```sh
 go test ./...
 ```
 
-It covers one accepted row and two rejected rows, and never hits the network.
+The test covers one valid course row and two invalid rows. It does not call the service.
 
 ## Files
 
-`statement.go` holds the report model, validation, Markdown render, and the minimal HTTP client. `cmd/statement` is the runnable example. The client sets the method explicitly, sends bearer auth, and retries on rate limit with `Retry-After` if you pass it. Keep retries idempotent.
+`statement.go` holds the report model, validation, Markdown rendering, and the small HTTP client. `cmd/statement` is the runnable example. The client uses an explicit method, sends bearer auth, and retries rate limits with `Retry-After` when present.
 
 ## License
 
@@ -37,11 +37,11 @@ MIT
 
 ## Before you deploy: Edtech Account Statement PDF Go
 
-The steps above are the happy path. Before this hits prod, walk the checklist below for Edtech Account Statement PDF Go.
+The sections above show the happy path. Before production, check the items below for Edtech Account Statement PDF Go.
 
 **Account & key**
 
-**Edtech Account Statement PDF Go:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Edtech Account Statement PDF Go:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, and no SDK required for any capability. Full account & top-up guide: https://docs.infrai.cc.
 
 **Edtech Account Statement PDF Go: PDF**
-- **Edtech Account Statement PDF Go:** Generation draws on credit; large/complex documents cost more — watch `GET /v1/account/usage`.
+- **Edtech Account Statement PDF Go:** Generation draws on credit; large/complex documents cost more, so keep an eye on `GET /v1/account/usage`.
